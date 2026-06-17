@@ -1,7 +1,28 @@
+const fs = require('fs');
 require('dotenv').config();
 const { pool } = require('./database');
 
 const CREATE_DB = `CREATE DATABASE IF NOT EXISTS \`${process.env.DB_NAME || 'github_analyzer'}\``;
+
+function getSslConfig() {
+  if (process.env.DB_SSL !== 'true' && process.env.DB_SSL_MODE !== 'REQUIRED') {
+    return false;
+  }
+
+  const sslOptions = { rejectUnauthorized: true };
+
+  try {
+    if (process.env.DB_SSL_CA && process.env.DB_SSL_CA.includes('BEGIN CERTIFICATE')) {
+      sslOptions.ca = process.env.DB_SSL_CA.replace(/\\n/g, '\n');
+    } else if (process.env.DB_SSL_CA_PATH) {
+      sslOptions.ca = fs.readFileSync(process.env.DB_SSL_CA_PATH, 'utf8');
+    }
+    return sslOptions;
+  } catch (err) {
+    console.warn('⚠️ Could not load DB SSL CA during migration, falling back to non-verifying TLS:', err.message);
+    return { rejectUnauthorized: false };
+  }
+}
 
 const CREATE_PROFILES_TABLE = `
   CREATE TABLE IF NOT EXISTS profiles (
@@ -103,6 +124,7 @@ async function migrate() {
       port: parseInt(process.env.DB_PORT) || 3306,
       user: process.env.DB_USER || 'root',
       password: process.env.DB_PASSWORD || '',
+      ssl: getSslConfig(),
     });
     await tempConn.query(CREATE_DB);
     console.log(`✅ Database "${process.env.DB_NAME || 'github_analyzer'}" ensured`);
